@@ -72,8 +72,42 @@ fn zigzag_join(bunch_inverted_list: Vec<Vec<(u32, u32)>>, maxDocID: u32, page_ta
     }
     res
 }
-fn conjuctive_query(r: &mut File, lexicon: &BTreeMap<String, LexiconValue>, keywords: Vec<String>, page_table: &BTreeMap<u32, (String, u32)>)
-                    -> Vec<u32> {
+fn disjunctive_query(r: &mut File, lexicon: &BTreeMap<String, LexiconValue>, keywords: Vec<String>, page_table: &BTreeMap<u32, (String, u32)>)
+                    -> Vec<(u32, f32)>{
+
+    let mut bunch_inverted_list: Vec<Vec<(u32, u32)>> = vec![];
+    for word in keywords {
+        if let Some(v) = lexicon.get(&word) {
+            let (term_ID, inverted_list) = read_inverted_list_from_offset(r, v.offset);
+            bunch_inverted_list.push(inverted_list);
+        }
+    }
+    // doc_ID to score
+    let mut mp: BTreeMap<u32, f32> = BTreeMap::new();
+    for inverted_list in bunch_inverted_list {
+        for (doc_ID, freq) in &inverted_list {
+            let doc_length = page_table.get(&doc_ID).unwrap().1;
+            let score_new = BM25(*freq, inverted_list.len() as u32, doc_length);
+            if let Some(score) = mp.get_mut(&doc_ID) {
+                *score += score_new;
+
+            } else {
+                mp.insert(*doc_ID, score_new);
+            }
+        }
+    }
+    let mut res = vec![];
+    for (did, score) in mp {
+        res.push((did, score));
+    }
+    res.sort_by(|p, q| q.1.partial_cmp(&p.1).expect("Not expecting a NaN to appear in BM25 score"));
+    if res.len() > 10 {
+        return res[0..10].to_vec();
+    }
+    res
+}
+fn conjunctive_query(r: &mut File, lexicon: &BTreeMap<String, LexiconValue>, keywords: Vec<String>, page_table: &BTreeMap<u32, (String, u32)>)
+                    -> Vec<(u32, f32)> {
     // returns a list of doc_IDs
 
     let mut bunch_inverted_list: Vec<Vec<(u32, u32)>> = vec![];
@@ -103,15 +137,12 @@ fn conjuctive_query(r: &mut File, lexicon: &BTreeMap<String, LexiconValue>, keyw
         let res = zigzag_join(bunch_inverted_list, *page_table.iter().next_back().unwrap().0, page_table);
         res
     };
-    res.sort_by(|arg1, arg2| arg1.1.partial_cmp(&arg2.1).expect("Not expecting there's document's BM25 score is NaN."));
+    res.sort_by(|p, q| q.1.partial_cmp(&p.1).expect("Not expecting there's document's BM25 score is NaN."));
     // res.sort_by(|arg1, arg2| arg1.1.partial_cmp(&arg2.1).unwrap_or(std::cmp::Ordering::Less));
-    println!("{:?}", res);
-    let mut ret = vec![];
-    // top-10 result
-    for e in &res[..10] {
-        ret.push(e.0);
+    if res.len() > 10{
+        return res[..10].to_vec();
     }
-    return ret;
+    res
 }
 fn main() {
     let stdin = io::stdin();
@@ -130,7 +161,7 @@ fn main() {
         if keywords.len() == 0 {
             break;
         }
-        let doc_IDs = conjuctive_query(&mut f, &lexicon, keywords, &page_table);
+        let doc_IDs = disjunctive_query(&mut f, &lexicon, keywords, &page_table);
         println!("doc_ID {:?}", doc_IDs);
     }
     println!("Exiting...");
