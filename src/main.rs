@@ -24,7 +24,6 @@ fn BM25(term_freq: u32, nt: u32, dl: u32) -> f32 {
     // Reference:
     // https://kmwllc.com/index.php/2020/03/20/understanding-tf-idf-and-bm-25/
     //
-    // use fake BM25 for now
     // N is the number of docs in corpus, adl is average doc length for corpus
     // nt is the length of inverted_list for term i
     // k and b are hyperparameters
@@ -154,14 +153,34 @@ fn main() {
 
     let mut r = stdin.lock();
     loop {
-        println!("Please input keywords: ");
+        println!("Please input query type(q to exit): d(disjunctive), c(conjunctive): ");
+        let mut typ = String::new();
+        r.read_line(&mut typ).expect("Failed read");
+        if typ == "q\n" {
+            break;
+        }
+        while typ != "d\n" && typ != "c\n" {
+            println!("Please input query type: d(disjunctive), c(conjunctive): ");
+            typ.clear();
+            r.read_line(&mut typ).expect("Failed read");
+            if typ == "q\n" {
+                break;
+            }
+        }
+        println!("Please input keywords(enter to exit): ");
         let mut input = String::new();
         r.read_line(&mut input).expect("Failed read");
         let keywords: Vec<String> = input.split_whitespace().map(String::from).collect();
         if keywords.len() == 0 {
             break;
         }
-        let doc_IDs = disjunctive_query(&mut f, &lexicon, keywords, &page_table);
+        let doc_IDs = if typ == "d\n" {
+            disjunctive_query(&mut f, &lexicon, keywords, &page_table)
+        } else if typ == "c\n" {
+            conjunctive_query(&mut f, &lexicon, keywords, &page_table)
+        } else {
+            vec![]
+        };
         println!("doc_ID {:?}", doc_IDs);
     }
     println!("Exiting...");
