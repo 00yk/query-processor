@@ -3,6 +3,10 @@ use std::collections::BTreeMap;
 use inverted_list::*;
 use std::io::{self, BufRead};
 use std::io::Write;
+
+mod vbyte;
+use vbyte::*;
+
 fn nextGEQ(doc_ID: u32, inverted_list: &Vec<(u32, u32)>, mut cur_pos: usize) -> (u32, usize) {
     // next greater than or equal to doc_ID
     // linear search from cur_pos
