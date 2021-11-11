@@ -6,10 +6,11 @@ fn test_vbyte() {
     println!("{:?}", a);
 
     let v = vec![1, 2, 3, 1024];
-    let b = vbyteEncode(v);
+    let b = vbyteEncode(v.clone());
     println!("b: {:?}", b);
     let c = vbyteDecode(b);
     println!("c: {:?}", c);
+    assert_eq!(v, c);
 
 }
 
@@ -51,22 +52,27 @@ fn test_unsafe_flatten() {
 #[cfg(test)]
 #[test]
 fn test_unsafe_flatten_reverse() {
+    use crate::vbyte::*;
+
     let mut v: Vec<(u32, u32)> = vec![];
     v.push((1, 2));
     v.push((3, 4));
-    let n = v.len();
-    println!("unsafe flatten reverse");
-    println!("v: {:?}", v);
+    let vv = v.clone();
+
     let mut v2: Vec<u32> = unsafe {
         v.set_len(v.len() * 2);
         std::mem::transmute(v)
     };
-    println!("v2: {:?}", v2);
-    let v3: Vec<(u32, u32)> = unsafe {
-        v2.set_len(v2.len() / 2);
-        std::mem::transmute(v2)
+
+    let bytes = vbyteEncode(v2.clone());
+    println!("bytes: {:?}", bytes);
+    let mut v3 = vbyteDecode(bytes);
+    assert_eq!(v2, v3);
+
+    let v4: Vec<(u32, u32)> = unsafe {
+        v3.set_len(v3.len() / 2);
+        std::mem::transmute(v3)
     };
-    println!("v3: {:?}", v3);
-    println!("-----------------");
+    assert_eq!(vv, v4);
 
 }

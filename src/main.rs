@@ -1,11 +1,17 @@
 use std::fs::File;
 use std::collections::BTreeMap;
 use inverted_list::*;
+use mongodb::sync::Collection;
 use std::io::{self, BufRead};
 use std::io::Write;
 
-mod vbyte;
-use vbyte::*;
+use mongodb::{
+    bson::doc,
+    sync::Client,
+};
+
+// mod vbyte;
+// use vbyte::*;
 
 fn nextGEQ(doc_ID: u32, inverted_list: &Vec<(u32, u32)>, mut cur_pos: usize) -> (u32, usize) {
     // next greater than or equal to doc_ID
@@ -22,8 +28,8 @@ fn nextGEQ(doc_ID: u32, inverted_list: &Vec<(u32, u32)>, mut cur_pos: usize) -> 
 }
 static k: f32 = 1.2;
 static b: f32 = 0.75;
-static N: u32 = 3206234; // this is estimate, use true value later!
-static adl: f32 = 1132.1028;
+static N: u32 = 3213835; //<- this is true value 3206234;<- this is estimated value.
+static adl: f32 = 1128.2942; //1132.1028; <- this is estimated value
 fn BM25(term_freq: u32, nt: u32, dl: u32) -> f32 {
     // Reference:
     // https://kmwllc.com/index.php/2020/03/20/understanding-tf-idf-and-bm-25/
@@ -88,7 +94,9 @@ fn disjunctive_query(r: &mut File, lexicon: &BTreeMap<String, LexiconValue>, key
     // doc_ID to score
     let mut mp: BTreeMap<u32, f32> = BTreeMap::new();
     for inverted_list in bunch_inverted_list {
+        // println!("inverted_list: {:?}", inverted_list);
         for (doc_ID, freq) in &inverted_list {
+            // println!("doc_ID: {:?}", doc_ID);
             let doc_length = page_table.get(&doc_ID).unwrap().1;
             let score_new = BM25(*freq, inverted_list.len() as u32, doc_length);
             if let Some(score) = mp.get_mut(&doc_ID) {
@@ -127,6 +135,7 @@ fn conjunctive_query(r: &mut File, lexicon: &BTreeMap<String, LexiconValue>, key
     let mut res = if bunch_inverted_list.len() <= 1{
         let mut res: Vec<(u32, f32)> = vec![];
         for inverted_list in bunch_inverted_list {
+            // println!("inverted_list: {:?}", inverted_list);
             for i in &inverted_list {
                 let mut score = 0.0;
                 let doc_length = page_table.get(&i.0).unwrap().1;
@@ -147,12 +156,34 @@ fn conjunctive_query(r: &mut File, lexicon: &BTreeMap<String, LexiconValue>, key
     }
     res
 }
+fn snippets_generation(docs: Vec<(u32, f32)>, coll: &Collection<Page>) {
+    for (docID, freq) in docs {
+        let cursor = coll.find(doc! { "docID": docID }, None).expect("MongoDB collection find failed");
+        for result in cursor {
+            // println!("content: {:?}", result.unwrap().content);
+            let mut cnt = 0;
+            for i in result.unwrap().content {
+                println!("{:?}", i);
+                cnt += 1;
+                if cnt >= 3 {
+                    break;
+                }
+            }
+            println!("------------------------------");
+        }
+    }
+}
 fn main() {
     let stdin = io::stdin();
 
     let mut f = File::open("inverted_index.tmp").unwrap();
     let lexicon: BTreeMap<String, LexiconValue> = deserialize_to_mem("lexicon.tmp").expect("Lexicon can not be read.");
     let page_table: BTreeMap<u32, (String, u32)> = deserialize_to_mem("page_table.tmp").expect("Page table cannot be read");
+
+    // mongodb connection
+    let client = Client::with_uri_str("mongodb://localhost:27017").expect("MongoDB connection failed");
+    let database = client.database("wse");
+    let collection = database.collection::<Page>("pages");
 
 
     let mut r = stdin.lock();
@@ -185,7 +216,9 @@ fn main() {
         } else {
             vec![]
         };
-        println!("doc_ID {:?}", doc_IDs);
+        println!("doc_IDs {:?}", doc_IDs);
+        println!("doc_IDs.len(): {:?}", doc_IDs.len());
+        snippets_generation(doc_IDs, &collection);
     }
     println!("Exiting...");
 

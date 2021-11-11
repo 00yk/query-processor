@@ -6,4 +6,6 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-inverted-list = { path = "../inverted-list", features = ["vbyte-compression"] }
+inverted-list = { path = "../inverted-list", features = ["vbyte-compression", "binary-format", "binary-posting"] }
+# inverted-list = { path = "../inverted-list" }
+mongodb = {version = "2.0.1", features = ["sync"], default-features = false}
