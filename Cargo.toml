@@ -9,3 +9,4 @@ edition = "2018"
 inverted-list = { path = "../inverted-list", features = ["vbyte-compression", "binary-format", "binary-posting"] }
 # inverted-list = { path = "../inverted-list" }
 mongodb = {version = "2.0.1", features = ["sync"], default-features = false}
+aho-corasick = "0.7.18"

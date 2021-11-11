@@ -4,6 +4,8 @@ use inverted_list::*;
 use mongodb::sync::Collection;
 use std::io::{self, BufRead};
 use std::io::Write;
+use std::collections::VecDeque;
+use aho_corasick::AhoCorasickBuilder;
 
 use mongodb::{
     bson::doc,
@@ -81,12 +83,12 @@ fn zigzag_join(bunch_inverted_list: Vec<Vec<(u32, u32)>>, maxDocID: u32, page_ta
     }
     res
 }
-fn disjunctive_query(r: &mut File, lexicon: &BTreeMap<String, LexiconValue>, keywords: Vec<String>, page_table: &BTreeMap<u32, (String, u32)>)
+fn disjunctive_query(r: &mut File, lexicon: &BTreeMap<String, LexiconValue>, keywords: &Vec<String>, page_table: &BTreeMap<u32, (String, u32)>)
                     -> Vec<(u32, f32)>{
 
     let mut bunch_inverted_list: Vec<Vec<(u32, u32)>> = vec![];
     for word in keywords {
-        if let Some(v) = lexicon.get(&word) {
+        if let Some(v) = lexicon.get(word) {
             let (term_ID, inverted_list) = read_inverted_list_from_offset(r, v.offset);
             bunch_inverted_list.push(inverted_list);
         }
@@ -117,13 +119,13 @@ fn disjunctive_query(r: &mut File, lexicon: &BTreeMap<String, LexiconValue>, key
     }
     res
 }
-fn conjunctive_query(r: &mut File, lexicon: &BTreeMap<String, LexiconValue>, keywords: Vec<String>, page_table: &BTreeMap<u32, (String, u32)>)
+fn conjunctive_query(r: &mut File, lexicon: &BTreeMap<String, LexiconValue>, keywords: &Vec<String>, page_table: &BTreeMap<u32, (String, u32)>)
                     -> Vec<(u32, f32)> {
     // returns a list of doc_IDs
 
     let mut bunch_inverted_list: Vec<Vec<(u32, u32)>> = vec![];
     for word in keywords {
-        if let Some(v) = lexicon.get(&word) {
+        if let Some(v) = lexicon.get(word) {
             let (term_ID, inverted_list) = read_inverted_list_from_offset(r, v.offset);
             bunch_inverted_list.push(inverted_list);
         } else {
@@ -157,6 +159,7 @@ fn conjunctive_query(r: &mut File, lexicon: &BTreeMap<String, LexiconValue>, key
     res
 }
 fn snippets_generation(docs: Vec<(u32, f32)>, coll: &Collection<Page>) {
+    // naively return first few lines for the doc
     for (docID, freq) in docs {
         let cursor = coll.find(doc! { "docID": docID }, None).expect("MongoDB collection find failed");
         for result in cursor {
@@ -169,6 +172,59 @@ fn snippets_generation(docs: Vec<(u32, f32)>, coll: &Collection<Page>) {
                     break;
                 }
             }
+            println!("------------------------------");
+        }
+    }
+}
+
+fn solve(w: u8, content: &Vec<String>, patterns: &[String]) -> (usize, usize) {
+    // returning the [start..end) slice of content
+    if w == 0 {
+        return (0, 0)
+    }
+    // assume w is nonnegative
+    // if the window is larger than the whole context then just return all
+    if content.len() <= w as usize {
+        return (0, w as usize)
+    }
+
+    let ac = AhoCorasickBuilder::new()
+        .ascii_case_insensitive(true)
+        .build(patterns);
+    let mut window = VecDeque::new();
+    // init window
+    for i in 0..w {
+        let cnt = ac.find_iter(&content[i as usize]).count();
+        window.push_back(cnt);
+    }
+    let mut mx: usize = window.iter().sum();
+    let mut cur = w;
+    // slide window
+    for i in w as usize..content.len() {
+        window.pop_front();
+        let cnt = ac.find_iter(&content[i as usize]).count();
+        window.push_back(cnt);
+        let sum = window.iter().sum();
+        if sum > mx {
+            mx = sum;
+            cur = i as u8 + 1;
+        }
+    }
+
+    (cur as usize - w as usize, cur as usize)
+}
+fn snippets_generation_ac(docs: Vec<(u32, f32)>, query: &Vec<String>, coll: &Collection<Page>) {
+    // based on Aho-corasick automaton
+    for (docID, freq) in docs {
+        let cursor = coll.find(doc! { "docID": docID }, None).expect("MongoDB collection find failed");
+        for result in cursor {
+            let content = result.unwrap().content;
+            // find the maximum patterns' occurrences in consecutive lines
+            let (l, r) = solve(3, &content, query);
+            for i in l..r {
+                println!("{:?}", content[i]);
+            }
+
             println!("------------------------------");
         }
     }
@@ -210,15 +266,16 @@ fn main() {
             break;
         }
         let doc_IDs = if typ == "d\n" {
-            disjunctive_query(&mut f, &lexicon, keywords, &page_table)
+            disjunctive_query(&mut f, &lexicon, &keywords, &page_table)
         } else if typ == "c\n" {
-            conjunctive_query(&mut f, &lexicon, keywords, &page_table)
+            conjunctive_query(&mut f, &lexicon, &keywords, &page_table)
         } else {
             vec![]
         };
         println!("doc_IDs {:?}", doc_IDs);
         println!("doc_IDs.len(): {:?}", doc_IDs.len());
-        snippets_generation(doc_IDs, &collection);
+        // snippets_generation(doc_IDs, &collection);
+        snippets_generation_ac(doc_IDs, &keywords, &collection);
     }
     println!("Exiting...");
 
